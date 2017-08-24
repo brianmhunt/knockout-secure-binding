@@ -62,15 +62,41 @@ Identifier = (function () {
 
     for (i = 0, n = refs.length; i < n; ++i) {
       member = refs[i];
-      if (member === true) {
-        value = value.call(last_value || self);
-        last_value = value;
+      if (member instanceof Array) {
+        if(!!value && !!value.call){
+            value = value.apply(last_value || $data || self, this.convert_args(member));
+            last_value = value;
+        }
       } else {
         last_value = value;
-        value = value[value_of(member)];
+        if(!!value){
+            value = value[value_of(member)];
+        }
       }
     }
     return value;
+  };
+
+  /*
+    @param args -> an array of arguments
+    @return resolved_args -> array of dereferenced arguments
+  */
+  Identifier.prototype.convert_args = function (args) {
+    var i, resolved_args = [];
+
+    if(!args || args.length === 0) {
+      return resolved_args;
+    }
+
+    for(i=0; i<args.length; i++){
+      if(args[i] instanceof Identifier || args[i] instanceof Expression) {
+        resolved_args.push(args[i].get_value());
+      }else {
+        resolved_args.push(args[i]);
+      }
+    }
+
+    return resolved_args;
   };
 
   /**

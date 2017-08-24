@@ -1,4 +1,4 @@
-/*! knockout-secure-binding - v0.5.5 - 2017-05-22
+/*! knockout-secure-binding - v1.0.5 - 2017-08-24
  *  https://github.com/brianmhunt/knockout-secure-binding
  *  Copyright (c) 2013 - 2017 Brian M Hunt; License: MIT */
 ;(function(factory) {
@@ -111,10 +111,10 @@ Identifier = (function () {
 
     for (i = 0, n = refs.length; i < n; ++i) {
       member = refs[i];
-      if (typeof(member) === 'object') {
+      if (member instanceof Array) {
         if(!!value && !!value.call){
-            value = value.apply(last_value || $data || self, member);
-            last_value = value;	
+            value = value.apply(last_value || $data || self, this.convert_args(member));
+            last_value = value;
         }
       } else {
         last_value = value;
@@ -124,6 +124,28 @@ Identifier = (function () {
       }
     }
     return value;
+  };
+
+  /*
+    @param args -> an array of arguments
+    @return resolved_args -> array of dereferenced arguments
+  */
+  Identifier.prototype.convert_args = function (args) {
+    var i, resolved_args = [];
+
+    if(!args || args.length === 0) {
+      return resolved_args;
+    }
+
+    for(i=0; i<args.length; i++){
+      if(args[i] instanceof Identifier || args[i] instanceof Expression) {
+        resolved_args.push(args[i].get_value());
+      }else {
+        resolved_args.push(args[i]);
+      }
+    }
+
+    return resolved_args;
   };
 
   /**
@@ -252,6 +274,19 @@ Node = (function () {
     // logic
     '&&': function logic_and(a, b) { return a && b; },
     '||': function logic_or(a, b) { return a || b; },
+    '?': function cond(a, b) { return a || b },
+    '-:': function cond_left(a, b) {
+            if(!!a) { 
+              return b;
+            }
+            return null;
+          },
+    ':-': function cond_right(a, b) {
+            if(!a) { 
+              return b;
+            }
+            return null;
+          }
   };
 
   /* In order of precedence, see:
@@ -294,7 +329,7 @@ Node = (function () {
     if (typeof(leaf) === 'function') {
       // Expressions on observables are nonsensical, so we unwrap any
       // function values (e.g. identifiers).
-      return ko.unwrap(leaf());
+      return ko.utils.unwrapObservable(leaf());
     }
 
     // primitives
@@ -306,7 +341,7 @@ Node = (function () {
     if (leaf instanceof Identifier || leaf instanceof Expression) {
       // lhs is passed in as the parent of the leaf. It will be defined in
       // cases like a.b.c as 'a' for 'b' then as 'b' for 'c'.
-      return ko.unwrap(leaf.get_value(member_of));
+      return ko.utils.unwrapObservable(leaf.get_value(member_of));
     }
 
     if (leaf instanceof Node) {
@@ -365,7 +400,7 @@ Expression = (function () {
       if (!op) {
         break;
       }
-      if (op.precedence > root.op.precedence) {
+      if (op.precedence >= root.op.precedence) {
         // rebase
         root = new Node(root, op, value);
         leaf = root;
@@ -697,6 +732,27 @@ Parser = (function () {
     return op_fn;
   };
 
+  Parser.prototype.condExpression = function (cond) {
+    var lhs,
+        rhs,
+        lhsExpNode,
+        rhsExpNode;
+
+    this.white();
+    this.next('?');
+    this.white();
+    lhs = this.expression();
+    lhsExpNode = new Expression([cond, Expression.operators['-:'], lhs]);
+
+    this.white();
+    this.next(":");
+    this.white();
+    rhs = this.expression();
+    rhsExpNode = new Expression([cond, Expression.operators[':-'], rhs]);
+
+    return new Expression([lhsExpNode, Expression.operators['?'], rhsExpNode]);
+  };
+ 
   /**
    * Parse an expression – builds an operator tree, in something like
    * Shunting-Yard.
@@ -719,6 +775,7 @@ Parser = (function () {
         nodes.push(op);
       }
 
+      ch = this.ch;
       if (ch === '(') {
         this.next();
         nodes.push(this.expression());
@@ -728,10 +785,16 @@ Parser = (function () {
         nodes.push(node_value);
       }
       ch = this.white();
+
       if (ch === ':' || ch === '}' || ch === ',' || ch === ']' ||
           ch === ')' || ch === '') {
         break;
       }
+
+      if(ch === '?' && nodes.length === 1){
+        return this.condExpression(nodes[0]);
+      }
+
       // infix operators
       op = this.operator();
       if (op) {
@@ -780,7 +843,7 @@ Parser = (function () {
                 ch = this.white();
             }
             
-            func_args.push(this.value());
+            func_args.push(this.expression());
             ch = this.white();
         }
 
@@ -917,7 +980,7 @@ Parser = (function () {
       } else if (value instanceof Expression) {
         result[name] = value.get_value();
       } else if (typeof(value) != 'function') {
-        result[name] = value.get_value();
+        result[name] = value;
       }
     });
 
@@ -1032,7 +1095,7 @@ function nodeParamsToObject(node, parser) {
             } else {
                 return ko.computed({
                     read: function() {
-                        return ko.unwrap(paramValueComputed());
+                        return ko.utils.unwrapObservable(paramValueComputed());
                     },
                     write: ko.isWriteableObservable(paramValue) && function(value) {
                         paramValueComputed()(value);
@@ -1093,7 +1156,6 @@ ko.expressionRewriting._twoWayBindings['hasFocus'] = true;
 ko.expressionRewriting._twoWayBindings['selectedOptions'] = true;
 ko.expressionRewriting._twoWayBindings['textInput'] = true;
 ko.expressionRewriting._twoWayBindings['value'] = true;
-ko.exportSymbol('unwrap', ko.utils.unwrapObservable); 
 
 ko.utils.extend(secureBindingsProvider.prototype, {
     registerBindings: registerBindings,
@@ -1102,9 +1164,8 @@ ko.utils.extend(secureBindingsProvider.prototype, {
     getBindingsString: getBindingsString,
     nodeParamsToObject: nodeParamsToObject,
     Parser: Parser
-});
-    if (!exports) {
-        ko.secureBindingsProvider = secureBindingsProvider;
-    }
+});    
+    ko.secureBindingsProvider = secureBindingsProvider;
+    
     return secureBindingsProvider;
 }));

@@ -36,6 +36,19 @@ Node = (function () {
     // logic
     '&&': function logic_and(a, b) { return a && b; },
     '||': function logic_or(a, b) { return a || b; },
+    '?': function cond(a, b) { return a || b },
+    '-:': function cond_left(a, b) {
+            if(!!a) { 
+              return b;
+            }
+            return null;
+          },
+    ':-': function cond_right(a, b) {
+            if(!a) { 
+              return b;
+            }
+            return null;
+          }
   };
 
   /* In order of precedence, see:
@@ -78,7 +91,7 @@ Node = (function () {
     if (typeof(leaf) === 'function') {
       // Expressions on observables are nonsensical, so we unwrap any
       // function values (e.g. identifiers).
-      return ko.unwrap(leaf());
+      return ko.utils.unwrapObservable(leaf());
     }
 
     // primitives
@@ -90,7 +103,7 @@ Node = (function () {
     if (leaf instanceof Identifier || leaf instanceof Expression) {
       // lhs is passed in as the parent of the leaf. It will be defined in
       // cases like a.b.c as 'a' for 'b' then as 'b' for 'c'.
-      return ko.unwrap(leaf.get_value(member_of));
+      return ko.utils.unwrapObservable(leaf.get_value(member_of));
     }
 
     if (leaf instanceof Node) {
@@ -149,7 +162,7 @@ Expression = (function () {
       if (!op) {
         break;
       }
-      if (op.precedence > root.op.precedence) {
+      if (op.precedence >= root.op.precedence) {
         // rebase
         root = new Node(root, op, value);
         leaf = root;

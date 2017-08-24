@@ -10,6 +10,7 @@ var fs = require('fs'),
     watch = require('gulp-watch'),
     url = require('url'),
     colors = require('colors'),
+    nugetpack = require('gulp-nuget-pack'),
     yaml = require('js-yaml'),
 
     now = new Date(),
@@ -38,9 +39,9 @@ var fs = require('fs'),
       '    }\n' +
       '}(function(ko, exports, undefined) {\n',
 
-    tail = '    if (!exports) {\n' +
-    '        ko.secureBindingsProvider = secureBindingsProvider;\n' +
-    '    }\n' +
+    tail = '    \n' +
+    '    ko.secureBindingsProvider = secureBindingsProvider;\n' +
+    '    \n' +
     '    return secureBindingsProvider;\n' +
     '}));';
 
@@ -51,7 +52,7 @@ gulp.task('concat', function () {
       .pipe(concat("knockout-secure-binding.js"))
       .pipe(header(banner, { pkg: pkg, today: now }))
       .pipe(footer(tail))
-      .pipe(gulp.dest("./dist"))
+      .pipe(gulp.dest("./Scripts"))
 })
 
 gulp.task('minify', function () {
@@ -61,7 +62,7 @@ gulp.task('minify', function () {
       .pipe(uglify())
       .pipe(header(banner, { pkg: pkg, today: now }))
       .pipe(footer(tail))
-      .pipe(gulp.dest("./dist"))
+      .pipe(gulp.dest("./Scripts"))
 })
 
 gulp.task('lint', function () {
@@ -90,3 +91,25 @@ gulp.task('changelog', function (done) {
 })
 
 gulp.task('default', ['concat', 'minify']);
+
+gulp.task('nuget-pack', function(callback) {
+    nugetpack({
+            id: "KnockoutSecureBinding",
+            version: "1.0.5",
+            authors: "Brian M Hunt",
+            owners: "Brian M Hunt",
+            description: "KnockoutSecureBinding helps in enabling CSP on pages using knockout",
+            language: "en-us",
+            projectUrl: "git://github.com/brianmhunt/knockout-secure-binding.git",
+            licenseUrl: "http://brianmhunt.mit-license.org/",
+            dependencies: [
+                {id: "knockout", version: "(2.2.1)"}
+            ],
+            outputDir: "out"
+        },
+        [
+            "Scripts/**/*.js"
+        ],
+        callback
+    );
+});

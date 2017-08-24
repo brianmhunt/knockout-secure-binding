@@ -111,16 +111,12 @@ Identifier = (function () {
 
     for (i = 0, n = refs.length; i < n; ++i) {
       member = refs[i];
-      if (typeof(member) === 'object') {
-        if(!!value && !!value.call){
-            value = value.apply(last_value || $data || self, member);
-            last_value = value;	
-        }
+      if (member === true) {
+        value = value.call(last_value || self);
+        last_value = value;
       } else {
         last_value = value;
-        if(!!value){
-            value = value[value_of(member)];
-        }
+        value = value[value_of(member)];
       }
     }
     return value;
@@ -765,26 +761,9 @@ Parser = (function () {
       if (ch === '(') {
         // a() function call
         this.next('(');
-        ch = this.white();
-        var func_args = [];
-        
-        while(ch){
-            if(ch === ')'){
-                this.next(')');
-                this.white();
-                break;
-            }
-            
-            if(ch === ','){
-                this.next(',');
-                ch = this.white();
-            }
-            
-            func_args.push(this.value());
-            ch = this.white();
-        }
-
-        return func_args;
+        this.white();
+        this.next(')');
+        return true;  // in Identifier::dereference we check this
       } else if (ch === '[') {
         // a[x] membership
         this.next('[');
@@ -847,17 +826,8 @@ Parser = (function () {
     var key,
         bindings = {},
         sep,
-        openBrace = false;
+        ch = this.ch;
 
-    this.white();
-    if(this.ch === '{')
-    {
-        this.next('{');
-        this.white();
-        openBrace = true;
-    }
-
-    var ch = this.ch;
     while (ch) {
       key = this.name();
       sep = this.white();
@@ -874,18 +844,9 @@ Parser = (function () {
         ch = this.next(':');
         bindings[key] = this.expression();
         this.white();
-        if (this.ch === '}') {
-            if (openBrace) {
-               this.next('}');
-               ch = this.white();
-            } else {
-                this.error("Unexpected char '}' found");
-            }
-        }
-        else if (this.ch) {
-            ch = this.next(',');  
-        } 
-        else {
+        if (this.ch) {
+          ch = this.next(',');
+        } else {
           ch = '';
         }
       }
@@ -907,7 +868,9 @@ Parser = (function () {
       if (value instanceof Identifier) {
         // use _twoWayBindings so the binding can update Identifier
         // See http://stackoverflow.com/questions/21580173
-        result[name] = value.get_value();
+        result[name] = function () {
+          return value.get_value();
+        };
 
         if (ko.expressionRewriting._twoWayBindings[name]) {
           propertyWriters[name] = function(new_value) {
@@ -915,9 +878,13 @@ Parser = (function () {
           };
         }
       } else if (value instanceof Expression) {
-        result[name] = value.get_value();
+        result[name] = function expressionAccessor() {
+          return value.get_value();
+        };
       } else if (typeof(value) != 'function') {
-        result[name] = value.get_value();
+        result[name] = function constAccessor() {
+          return value;
+        };
       }
     });
 
@@ -1048,7 +1015,14 @@ function nodeParamsToObject(node, parser) {
     return params;
 }
 
-function getBindings(node, context) {
+
+// Note we do not seem to need both getBindings and getBindingAccessors; just
+// the latter appears to suffice.
+//
+// Return the name/valueAccessor pairs.
+// (undocumented replacement for getBindings)
+// see https://github.com/knockout/knockout/pull/742
+function getBindingAccessors(node, context) {
     var bindings = {},
         component_name,
         parser = new Parser(node, context, this.globals),
@@ -1078,27 +1052,11 @@ function getBindings(node, context) {
     return bindings;
 }
 
-ko.utils.objectForEach = function (obj, action) {
-    for (var prop in obj) {
-        if (obj.hasOwnProperty(prop)) {
-            action(prop, obj[prop]);
-        }
-    }
-};
-
-ko.expressionRewriting._twoWayBindings = {};
-ko.expressionRewriting._twoWayBindings['checked'] = true;
-ko.expressionRewriting._twoWayBindings['hasfocus'] = true;
-ko.expressionRewriting._twoWayBindings['hasFocus'] = true;
-ko.expressionRewriting._twoWayBindings['selectedOptions'] = true;
-ko.expressionRewriting._twoWayBindings['textInput'] = true;
-ko.expressionRewriting._twoWayBindings['value'] = true;
-ko.exportSymbol('unwrap', ko.utils.unwrapObservable); 
 
 ko.utils.extend(secureBindingsProvider.prototype, {
     registerBindings: registerBindings,
     nodeHasBindings: nodeHasBindings,
-    getBindings: getBindings,
+    getBindingAccessors: getBindingAccessors,
     getBindingsString: getBindingsString,
     nodeParamsToObject: nodeParamsToObject,
     Parser: Parser
